@@ -4,10 +4,43 @@
 use core::panic::PanicInfo;
 use cortex_m::asm::delay;
 use rtt_target::{rprintln, rtt_init_print};
+use stm32f1xx_hal::gpio::*;
 use stm32f1xx_hal::usb::{Peripheral, UsbBus};
 use stm32f1xx_hal::{adc, pac, prelude::*};
 use usb_device::prelude::*;
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
+
+const N_ADCS: usize = 5;
+
+pub enum AdcChannel {
+    A0(PA0<Analog>),
+    A1(PA1<Analog>),
+    A2(PA2<Analog>),
+    A3(PA3<Analog>),
+    A4(PA4<Analog>),
+    A5(PA5<Analog>),
+    A6(PA6<Analog>),
+    A7(PA7<Analog>),
+    B0(PB0<Analog>),
+    B1(PB1<Analog>),
+}
+
+impl AdcChannel {
+    fn read(&mut self, adc: &mut adc::Adc<pac::ADC1>) -> u16 {
+        match self {
+            AdcChannel::A0(p) => adc.read(p).unwrap(),
+            AdcChannel::A1(p) => adc.read(p).unwrap(),
+            AdcChannel::A2(p) => adc.read(p).unwrap(),
+            AdcChannel::A3(p) => adc.read(p).unwrap(),
+            AdcChannel::A4(p) => adc.read(p).unwrap(),
+            AdcChannel::A5(p) => adc.read(p).unwrap(),
+            AdcChannel::A6(p) => adc.read(p).unwrap(),
+            AdcChannel::A7(p) => adc.read(p).unwrap(),
+            AdcChannel::B0(p) => adc.read(p).unwrap(),
+            AdcChannel::B1(p) => adc.read(p).unwrap(),
+        }
+    }
+}
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -39,8 +72,13 @@ fn main() -> ! {
     // Setup GPIOA
     let mut gpioa = p.GPIOA.split();
 
-    // Configure pb0, pb1 as an analog input
-    let mut ch0 = gpioa.pa0.into_analog(&mut gpioa.crl);
+    let mut channels: [AdcChannel; N_ADCS] = [
+        AdcChannel::A0(gpioa.pa0.into_analog(&mut gpioa.crl)),
+        AdcChannel::A1(gpioa.pa1.into_analog(&mut gpioa.crl)),
+        AdcChannel::A2(gpioa.pa2.into_analog(&mut gpioa.crl)),
+        AdcChannel::A3(gpioa.pa3.into_analog(&mut gpioa.crl)),
+        AdcChannel::A4(gpioa.pa4.into_analog(&mut gpioa.crl)),
+    ];
 
     // BluePill board has a pull-up resistor on the D+ line.
     // Pull the D+ pin down to send a RESET condition to the USB bus.
@@ -59,23 +97,28 @@ fn main() -> ! {
 
     let mut serial = SerialPort::new(&usb_bus);
 
-    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x16c0, 0x27dd))
-        .manufacturer("Fake company")
-        .product("Serial port")
-        .serial_number("TEST")
+    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x6565, 0x0001))
+        .manufacturer("Nim")
+        .product("pactlers-fw")
+        .serial_number("0001")
         .device_class(USB_CLASS_CDC)
         .build();
 
-    let mut buf = [0u8; 2];
+    let mut buf = [0u8; 2 * N_ADCS];
     loop {
         if !usb_dev.poll(&mut [&mut serial]) {
             continue;
         }
-        let data: u16 = adc1.read(&mut ch0).unwrap();
-        [buf[0], buf[1]] = data.to_le_bytes();
-        let count = serial.write(&buf).unwrap();
-        if count != 2 {
-            rprintln!("warning: {} byte written", count);
+
+        for i in 0..N_ADCS {
+            [buf[2 * i], buf[2 * i + 1]] = channels[i].read(&mut adc1).to_le_bytes();
+        }
+
+        match serial.write(&buf) {
+            Ok(count) if count != 2 * N_ADCS => {
+                rprintln!("warning: {} byte written", count);
+            }
+            _ => {}
         }
     }
 }
