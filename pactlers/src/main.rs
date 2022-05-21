@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{process::Command, time::Duration};
 
 const N_ADCS: usize = 5;
 const THRESHOLD: u16 = 10;
@@ -48,6 +48,76 @@ impl Tewmas {
     }
 }
 
+enum PactlClass {
+    App,
+    Mic,
+    Spk,
+}
+
+impl PactlClass {
+    fn class(&self) -> &str {
+        match &self {
+            PactlClass::App => "sink-input",
+            PactlClass::Mic => "source",
+            PactlClass::Spk => "sink",
+        }
+    }
+    fn id(&self) -> &str {
+        match &self {
+            PactlClass::App => "Sink Input #",
+            PactlClass::Mic => "Source #",
+            PactlClass::Spk => "Sink #",
+        }
+    }
+    fn name(&self) -> &str {
+        match &self {
+            PactlClass::App => "application.name = ",
+            _ => "alsa.card_name = ",
+        }
+    }
+}
+
+struct PactlChannel<'a> {
+    class: PactlClass,
+    name: &'a str,
+}
+
+impl<'a> PactlChannel<'a> {
+    fn new(class: PactlClass, name: &'a str) -> Self {
+        Self { class, name }
+    }
+
+    fn set(&self, vol: u32) {
+        // Adc: 0-4095 ; pactl: 0-65536 -> x16
+        let vol = &((vol + 1) * 16).to_string();
+        let output = Command::new("pactl")
+            .args(["list", &format!("{}s", self.class.class())])
+            .output()
+            .expect("Failed to execute command");
+        let output = std::str::from_utf8(&output.stdout).expect("invalid utf-8");
+        let mut id = "";
+        let mut childs = vec![];
+        for line in output.split('\n') {
+            let line = line.trim();
+            if let Some(line) = line.strip_prefix(self.class.id()) {
+                id = line;
+            } else if let Some(line) = line.strip_prefix(self.class.name()) {
+                if line.contains(self.name) {
+                    childs.push(
+                        Command::new("pactl")
+                            .args([&format!("set-{}-volume", self.class.class()), id, vol])
+                            .spawn()
+                            .expect("Failed to start command"),
+                    );
+                }
+            }
+        }
+        for mut child in childs {
+            child.wait().expect("Failed to run command");
+        }
+    }
+}
+
 fn main() {
     let mut port = serialport::new("/dev/pactlers", 0) // such baudrate, much speed, wow
         .timeout(Duration::from_millis(10))
@@ -57,19 +127,22 @@ fn main() {
     let mut buf: [u8; 2 * N_ADCS] = [0; 2 * N_ADCS];
     let mut values = Tewmas::new(buf);
     let mut old_values = [0; N_ADCS];
+
+    let chans: [PactlChannel; N_ADCS] = [
+        PactlChannel::new(PactlClass::App, "snapclient"),
+        PactlChannel::new(PactlClass::App, "Firefox"),
+        PactlChannel::new(PactlClass::App, "VLC"),
+        PactlChannel::new(PactlClass::Mic, "BIRD"),
+        PactlChannel::new(PactlClass::Spk, "HDA"),
+    ];
+
     loop {
         let count = port.read(&mut buf).expect("Found no data!");
         if count == 10 {
             if values.update(buf) {
                 for (i, &v) in values.tewma.iter().enumerate() {
                     if v != old_values[i] {
-                        match i {
-                            0 => println!("{} → {}", i, v),
-                            1 => println!("{} → {}", i, v),
-                            2 => println!("{} → {}", i, v),
-                            3 => println!("{} → {}", i, v),
-                            _ => println!("{} → {}", i, v),
-                        }
+                        chans[i].set(v as u32);
                     }
                 }
                 old_values = values.tewma;
