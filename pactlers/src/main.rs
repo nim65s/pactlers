@@ -1,52 +1,6 @@
-use std::{process::Command, time::Duration};
+use std::{process::Command, sync::mpsc, thread, time::Duration};
 
 const N_ADCS: usize = 5;
-const THRESHOLD: u16 = 10;
-//const N: u16 = 3;
-//const ALPHA: f32 = 2. / (N as f32 + 1.);
-const ALPHA: usize = 1; // "floor(x * 2 / (3 + 1))" == "x >> 1""
-
-type AdcValues = [i16; N_ADCS];
-type AdcData = [u8; N_ADCS * 2];
-
-fn unpack(data: AdcData) -> AdcValues {
-    [
-        i16::from_le_bytes([data[8], data[9]]),
-        i16::from_le_bytes([data[6], data[7]]),
-        i16::from_le_bytes([data[4], data[5]]),
-        i16::from_le_bytes([data[2], data[3]]),
-        i16::from_le_bytes([data[0], data[1]]),
-    ]
-}
-
-// Thresholded Exponentially Weighted Moving Average
-struct Tewmas {
-    ewma: AdcValues,
-    tewma: AdcValues, // reduce bandwdidh
-}
-
-impl Tewmas {
-    pub fn new(data: AdcData) -> Tewmas {
-        let vals = unpack(data);
-        Tewmas {
-            ewma: vals,
-            tewma: vals,
-        }
-    }
-
-    pub fn update(&mut self, data: AdcData) -> bool {
-        let mut something_new = false;
-        for (i, val) in unpack(data).iter().enumerate() {
-            //self.ewma[i] = (self.ewma[i] as f32 + ALPHA * (val - self.ewma[i]) as f32) as i32;
-            self.ewma[i] += (val - self.ewma[i]) >> ALPHA;
-            if self.tewma[i].abs_diff(self.ewma[i]) > THRESHOLD {
-                self.tewma[i] = self.ewma[i];
-                something_new = true;
-            }
-        }
-        something_new
-    }
-}
 
 enum PactlClass {
     App,
@@ -119,34 +73,42 @@ impl<'a> PactlChannel<'a> {
 }
 
 fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let chans: [PactlChannel; N_ADCS] = [
+            PactlChannel::new(PactlClass::Spk, "HDA"),
+            PactlChannel::new(PactlClass::Mic, "BIRD"),
+            PactlChannel::new(PactlClass::App, "VLC"),
+            PactlChannel::new(PactlClass::App, "Firefox"),
+            PactlChannel::new(PactlClass::App, "snapclient"),
+        ];
+        let mut buf: [u8; 3] = [0; 3];
+        let mut last: [u8; 3] = [0; 3];
+        loop {
+            while let Ok(b) = rx.try_recv() {
+                buf = b;
+            }
+            if buf != last {
+                let v = u32::from_le_bytes([buf[2], buf[1], 0, 0]);
+                chans[buf[0] as usize].set(v);
+                println!("{}: {}", buf[0], v);
+                last = buf;
+            }
+        }
+    });
+
     let mut port = serialport::new("/dev/pactlers", 0) // such baudrate, much speed, wow
-        .timeout(Duration::from_millis(10))
+        .timeout(Duration::from_secs(3600 * 24 * 7))
         .open()
         .expect("Failed to open port");
 
-    let mut buf: [u8; 2 * N_ADCS] = [0; 2 * N_ADCS];
-    let mut values = Tewmas::new(buf);
-    let mut old_values = [0; N_ADCS];
-
-    let chans: [PactlChannel; N_ADCS] = [
-        PactlChannel::new(PactlClass::App, "snapclient"),
-        PactlChannel::new(PactlClass::App, "Firefox"),
-        PactlChannel::new(PactlClass::App, "VLC"),
-        PactlChannel::new(PactlClass::Mic, "BIRD"),
-        PactlChannel::new(PactlClass::Spk, "HDA"),
-    ];
+    let mut buf: [u8; 3] = [0; 3];
 
     loop {
         let count = port.read(&mut buf).expect("Found no data!");
-        if count == 10 {
-            if values.update(buf) {
-                for (i, &v) in values.tewma.iter().enumerate() {
-                    if v != old_values[i] {
-                        chans[i].set(v as u32);
-                    }
-                }
-                old_values = values.tewma;
-            }
+        if count == 3 {
+            tx.send(buf).unwrap();
         } else {
             println!("wrong read count: {}", count);
         }

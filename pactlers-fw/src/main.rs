@@ -11,6 +11,10 @@ use usb_device::prelude::*;
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
 const N_ADCS: usize = 5;
+const THRESHOLD: u16 = 10;
+//const N: u16 = 3;
+//const ALPHA: f32 = 2. / (N as f32 + 1.);
+const ALPHA: usize = 1; // "floor(x * 2 / (3 + 1))" == "x >> 1""
 
 pub enum AdcChannel {
     A0(PA0<Analog>),
@@ -39,6 +43,40 @@ impl AdcChannel {
             AdcChannel::B0(p) => adc.read(p).unwrap(),
             AdcChannel::B1(p) => adc.read(p).unwrap(),
         }
+    }
+}
+
+type AdcValues = [i16; N_ADCS];
+
+// Thresholded Exponentially Weighted Moving Average
+struct Tewmas {
+    ewma: AdcValues,
+    tewma: AdcValues, // reduce bandwdidh
+}
+
+impl Tewmas {
+    pub fn new() -> Tewmas {
+        Tewmas {
+            ewma: [0; N_ADCS],
+            tewma: [0; N_ADCS],
+        }
+    }
+
+    pub fn update(&mut self, i: usize, val: i16) -> bool {
+        //self.ewma[i] = (self.ewma[i] as f32 + ALPHA * (val - self.ewma[i]) as f32) as i32;
+        self.ewma[i] += (val - self.ewma[i]) >> ALPHA;
+        if self.tewma[i].abs_diff(self.ewma[i]) > THRESHOLD {
+            self.tewma[i] = self.ewma[i];
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn get(&self, i: usize) -> [u8; 3] {
+        let mut ret = [i as u8, 0, 0];
+        [ret[2], ret[1]] = self.tewma[i].to_le_bytes();
+        ret
     }
 }
 
@@ -104,21 +142,20 @@ fn main() -> ! {
         .device_class(USB_CLASS_CDC)
         .build();
 
-    let mut buf = [0u8; 2 * N_ADCS];
+    let mut values = Tewmas::new();
     loop {
-        if !usb_dev.poll(&mut [&mut serial]) {
-            continue;
-        }
-
-        for i in 0..N_ADCS {
-            [buf[2 * i], buf[2 * i + 1]] = channels[i].read(&mut adc1).to_le_bytes();
-        }
-
-        match serial.write(&buf) {
-            Ok(count) if count != 2 * N_ADCS => {
-                rprintln!("warning: {} byte written", count);
+        for (i, chan) in channels.iter_mut().enumerate() {
+            usb_dev.poll(&mut [&mut serial]);
+            if values.update(i, chan.read(&mut adc1).try_into().unwrap()) {
+                usb_dev.poll(&mut [&mut serial]);
+                //rprintln!("{} {}", i, values.tewma[i]);
+                match serial.write(&values.get(i)) {
+                    Ok(count) if count != 3 => {
+                        rprintln!("warning: {} byte written", count);
+                    }
+                    _ => {}
+                }
             }
-            _ => {}
         }
     }
 }
