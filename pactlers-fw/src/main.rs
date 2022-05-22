@@ -4,81 +4,17 @@
 use core::panic::PanicInfo;
 use cortex_m::asm::delay;
 use rtt_target::{rprintln, rtt_init_print};
-use stm32f1xx_hal::gpio::*;
 use stm32f1xx_hal::usb::{Peripheral, UsbBus};
 use stm32f1xx_hal::{adc, pac, prelude::*};
-use usb_device::prelude::*;
+use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
+mod adcs;
+mod tewma;
+use crate::adcs::AdcChannel;
+use crate::tewma::Tewmas;
+
 const N_ADCS: usize = 5;
-const THRESHOLD: u16 = 10;
-//const N: u16 = 3;
-//const ALPHA: f32 = 2. / (N as f32 + 1.);
-const ALPHA: usize = 1; // "floor(x * 2 / (3 + 1))" == "x >> 1""
-
-pub enum AdcChannel {
-    A0(PA0<Analog>),
-    A1(PA1<Analog>),
-    A2(PA2<Analog>),
-    A3(PA3<Analog>),
-    A4(PA4<Analog>),
-    A5(PA5<Analog>),
-    A6(PA6<Analog>),
-    A7(PA7<Analog>),
-    B0(PB0<Analog>),
-    B1(PB1<Analog>),
-}
-
-impl AdcChannel {
-    fn read(&mut self, adc: &mut adc::Adc<pac::ADC1>) -> u16 {
-        match self {
-            AdcChannel::A0(p) => adc.read(p).unwrap(),
-            AdcChannel::A1(p) => adc.read(p).unwrap(),
-            AdcChannel::A2(p) => adc.read(p).unwrap(),
-            AdcChannel::A3(p) => adc.read(p).unwrap(),
-            AdcChannel::A4(p) => adc.read(p).unwrap(),
-            AdcChannel::A5(p) => adc.read(p).unwrap(),
-            AdcChannel::A6(p) => adc.read(p).unwrap(),
-            AdcChannel::A7(p) => adc.read(p).unwrap(),
-            AdcChannel::B0(p) => adc.read(p).unwrap(),
-            AdcChannel::B1(p) => adc.read(p).unwrap(),
-        }
-    }
-}
-
-type AdcValues = [i16; N_ADCS];
-
-// Thresholded Exponentially Weighted Moving Average
-struct Tewmas {
-    ewma: AdcValues,
-    tewma: AdcValues, // reduce bandwdidh
-}
-
-impl Tewmas {
-    pub fn new() -> Tewmas {
-        Tewmas {
-            ewma: [0; N_ADCS],
-            tewma: [0; N_ADCS],
-        }
-    }
-
-    pub fn update(&mut self, i: usize, val: i16) -> bool {
-        //self.ewma[i] = (self.ewma[i] as f32 + ALPHA * (val - self.ewma[i]) as f32) as i32;
-        self.ewma[i] += (val - self.ewma[i]) >> ALPHA;
-        if self.tewma[i].abs_diff(self.ewma[i]) > THRESHOLD {
-            self.tewma[i] = self.ewma[i];
-            true
-        } else {
-            false
-        }
-    }
-
-    pub fn get(&self, i: usize) -> [u8; 3] {
-        let mut ret = [i as u8, 0, 0];
-        [ret[2], ret[1]] = self.tewma[i].to_le_bytes();
-        ret
-    }
-}
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
