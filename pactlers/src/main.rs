@@ -92,9 +92,10 @@ fn main() {
             if buf != last {
                 let v = u32::from_le_bytes([buf[2], buf[1], 0, 0]);
                 chans[buf[0] as usize].set(v);
-                println!("{}: {}", buf[0], v);
+                //println!("{}: {}", buf[0], v);
                 last = buf;
             }
+            thread::sleep(Duration::from_millis(1));
         }
     });
 
@@ -112,5 +113,6 @@ fn main() {
         } else {
             println!("wrong read count: {}", count);
         }
+        thread::sleep(Duration::from_millis(1));
     }
 }
