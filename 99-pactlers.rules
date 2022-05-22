@@ -1,1 +1,0 @@
-ACTION=="add",ATTRS{idVendor}=="6565", ATTRS{idProduct}=="0001",SYMLINK+="pactlers",OWNER="nim"
