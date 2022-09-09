@@ -33,20 +33,29 @@ fn main() {
         }
     });
 
-    let mut port = serialport::new("/dev/pactlers", 0) // such baudrate, much speed, wow
-        .timeout(Duration::from_secs(3600 * 24 * 7))
-        .open()
-        .expect("Failed to open port");
-
-    let mut buf: [u8; 3] = [0; 3];
+    println!("Opening /dev/pactlers ...");
 
     loop {
-        let count = port.read(&mut buf).expect("Found no data!");
-        if count == 3 {
-            tx.send(buf).unwrap();
-        } else {
-            println!("wrong read count: {}", count);
+        let port = serialport::new("/dev/pactlers", 0) // such baudrate, much speed, wow
+            .timeout(Duration::from_secs(3600 * 24 * 7))
+            .open();
+        if port.is_err() {
+            thread::sleep(Duration::from_millis(500));
+            continue;
         }
-        thread::sleep(Duration::from_millis(1));
+        println!("Connected.");
+        let mut port = port.unwrap();
+
+        let mut buf: [u8; 3] = [0; 3];
+
+        loop {
+            match port.read(&mut buf) {
+                Ok(3) => tx.send(buf).unwrap(),
+                Ok(count) => eprintln!("wrong read count: {}", count),
+                Err(_) => break,
+            }
+            thread::sleep(Duration::from_millis(1));
+        }
+        eprintln!("Disconnected.");
     }
 }

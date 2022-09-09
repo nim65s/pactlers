@@ -1,11 +1,8 @@
 [Unit]
 Description=pactlers
-BindsTo=dev-pactlers.device
-After=dev-pactlers.device
 
 [Service]
 Type=simple
-ExecStartPre=/bin/sleep 2
 ExecStart=%h/.cargo/bin/pactlers
 Restart=on-failure
 RestartSec=5
