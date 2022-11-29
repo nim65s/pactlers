@@ -1,4 +1,4 @@
-use crate::N_ADCS;
+use pactlers_lib::{Cmd, N_ADCS};
 const THRESHOLD: u16 = 10;
 //const N: u16 = 3;
 //const ALPHA: f32 = 2. / (N as f32 + 1.);
@@ -31,9 +31,7 @@ impl Tewmas {
         }
     }
 
-    pub fn get(&self, i: usize) -> [u8; 3] {
-        let mut ret = [i as u8, 0, 0];
-        [ret[2], ret[1]] = self.tewma[i].to_le_bytes();
-        ret
+    pub fn get(&self, i: usize) -> Cmd {
+        Cmd { select: i as u8, volume: self.tewma[i] as u16 }
     }
 }

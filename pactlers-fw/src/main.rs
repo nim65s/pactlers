@@ -1,107 +1,203 @@
-#![no_std]
+//! CDC-ACM serial port example using cortex-m-rtic.
+//! Target board: Blue Pill
+//! with bincode & rtt
 #![no_main]
+#![no_std]
+#![allow(non_snake_case)]
 
-use core::panic::PanicInfo;
-use cortex_m::asm::delay;
-use rtt_target::{rprintln, rtt_init_print};
-use stm32f1xx_hal::usb::{Peripheral, UsbBus};
-use stm32f1xx_hal::{adc, pac, prelude::*};
-use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
-use usbd_serial::{SerialPort, USB_CLASS_CDC};
+use panic_rtt_target as _;
 
 mod adcs;
 mod tewma;
-use crate::adcs::AdcChannel;
-use crate::tewma::Tewmas;
 
-const N_ADCS: usize = 5;
-const HEADER: [u8; 4] = [0xFF, 0xFF, 0xFD, 0];
+#[rtic::app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2, SPI3, ADC1_2, ADC3, CAN_RX1, CAN_SCE])]
+mod app {
+    use bincode::encode_into_slice;
+    use cortex_m::asm::delay;
+    use pactlers_lib::*;
+    use rtt_target::{rprintln, rtt_init_print};
+    use stm32f1xx_hal::adc;
+    use stm32f1xx_hal::gpio::PinState;
+    use stm32f1xx_hal::gpio::{Output, PushPull, PC13};
+    use stm32f1xx_hal::pac::ADC1;
+    use stm32f1xx_hal::prelude::*;
+    use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
+    use stm32f1xx_hal::watchdog::IndependentWatchdog;
+    use systick_monotonic::{fugit::Duration, Systick};
+    use usb_device::prelude::*;
 
-#[cortex_m_rt::entry]
-fn main() -> ! {
-    rtt_init_print!();
-    rprintln!("Hello");
+    use crate::adcs::AdcChannel;
+    use crate::tewma::Tewmas;
 
-    let p = pac::Peripherals::take().unwrap();
-    let mut flash = p.FLASH.constrain();
-    let rcc = p.RCC.constrain();
+    #[shared]
+    struct Shared {
+        usb_dev: UsbDevice<'static, UsbBusType>,
+        serial: usbd_serial::SerialPort<'static, UsbBusType>,
+    }
 
-    // Configure ADC clocks
-    // Default value is the slowest possible ADC clock: PCLK2 / 8. Meanwhile ADC
-    // clock is configurable. So its frequency may be tweaked to meet certain
-    // practical needs. User specified value is be approximated using supported
-    // prescaler values 2/4/6/8.
-    let clocks = rcc
-        .cfgr
-        .adcclk(2.MHz())
-        .use_hse(8.MHz())
-        .sysclk(48.MHz())
-        .pclk1(24.MHz())
-        .freeze(&mut flash.acr);
+    #[local]
+    struct Local {
+        led: PC13<Output<PushPull>>,
+        state: bool,
+        iwdg: IndependentWatchdog,
+        channels: [AdcChannel; N_ADCS],
+        adc1: adc::Adc<ADC1>,
+        values: Tewmas,
+    }
 
-    assert!(clocks.usbclk_valid());
+    #[monotonic(binds = SysTick, default = true)]
+    type MonoTimer = Systick<1000>;
 
-    // Setup ADC
-    let mut adc1 = adc::Adc::adc1(p.ADC1, clocks);
+    #[init]
+    fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+        rtt_init_print!();
+        rprintln!("init start");
+        static mut USB_BUS: Option<usb_device::bus::UsbBusAllocator<UsbBusType>> = None;
 
-    // Setup GPIOA
-    let mut gpioa = p.GPIOA.split();
+        let mut flash = cx.device.FLASH.constrain();
+        let rcc = cx.device.RCC.constrain();
+        let mono = Systick::new(cx.core.SYST, 36_000_000);
 
-    let mut channels: [AdcChannel; N_ADCS] = [
-        AdcChannel::A0(gpioa.pa0.into_analog(&mut gpioa.crl)),
-        AdcChannel::A1(gpioa.pa1.into_analog(&mut gpioa.crl)),
-        AdcChannel::A2(gpioa.pa2.into_analog(&mut gpioa.crl)),
-        AdcChannel::A3(gpioa.pa3.into_analog(&mut gpioa.crl)),
-        AdcChannel::A4(gpioa.pa4.into_analog(&mut gpioa.crl)),
-    ];
+        let clocks = rcc
+            .cfgr
+            .use_hse(8.MHz())
+            .sysclk(48.MHz())
+            .pclk1(24.MHz())
+            .freeze(&mut flash.acr);
 
-    // BluePill board has a pull-up resistor on the D+ line.
-    // Pull the D+ pin down to send a RESET condition to the USB bus.
-    // This forced reset is needed only for development, without it host
-    // will not reset your device when you upload new firmware.
-    let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
-    usb_dp.set_low();
-    delay(clocks.sysclk().raw() / 100);
+        assert!(clocks.usbclk_valid());
 
-    let usb = Peripheral {
-        usb: p.USB,
-        pin_dm: gpioa.pa11,
-        pin_dp: usb_dp.into_floating_input(&mut gpioa.crh),
-    };
-    let usb_bus = UsbBus::new(usb);
+        let mut gpioa = cx.device.GPIOA.split();
+        let mut gpioc = cx.device.GPIOC.split();
 
-    let mut serial = SerialPort::new(&usb_bus);
+        // BluePill board has a pull-up resistor on the D+ line.
+        // Pull the D+ pin down to send a RESET condition to the USB bus.
+        // This forced reset is needed only for development, without it host
+        // will not reset your device when you upload new firmware.
+        let usb_dp = gpioa
+            .pa12
+            .into_push_pull_output_with_state(&mut gpioa.crh, PinState::Low);
+        delay(clocks.sysclk().raw() / 100);
 
-    let mut usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x6565, 0x0001))
+        let usb_dm = gpioa.pa11;
+        let usb_dp = usb_dp.into_floating_input(&mut gpioa.crh);
+
+        let usb = Peripheral {
+            usb: cx.device.USB,
+            pin_dm: usb_dm,
+            pin_dp: usb_dp,
+        };
+
+        unsafe {
+            USB_BUS.replace(UsbBus::new(usb));
+        }
+
+        let serial = usbd_serial::SerialPort::new(unsafe { USB_BUS.as_ref().unwrap() });
+
+        let usb_dev = UsbDeviceBuilder::new(
+            unsafe { USB_BUS.as_ref().unwrap() },
+            UsbVidPid(0x6565, 0x0001),
+        )
         .manufacturer("Nim")
-        .product("pactlers-fw")
+        .product("pactlers2")
         .serial_number("0001")
-        .device_class(USB_CLASS_CDC)
+        .device_class(usbd_serial::USB_CLASS_CDC)
         .build();
 
-    let mut values = Tewmas::new();
-    let mut send: [u8; 7] = [0; 7];
-    send[0..4].copy_from_slice(&HEADER);
-    loop {
+        let led = gpioc
+            .pc13
+            .into_push_pull_output_with_state(&mut gpioc.crh, PinState::Low);
+        blink::spawn_after(Duration::<u64, 1, 1000>::secs(1)).unwrap();
+        read::spawn_after(Duration::<u64, 1, 1000>::millis(100)).unwrap();
+        rprintln!("init end");
+
+        let channels = [
+            AdcChannel::A0(gpioa.pa0.into_analog(&mut gpioa.crl)),
+            AdcChannel::A1(gpioa.pa1.into_analog(&mut gpioa.crl)),
+            AdcChannel::A2(gpioa.pa2.into_analog(&mut gpioa.crl)),
+            AdcChannel::A3(gpioa.pa3.into_analog(&mut gpioa.crl)),
+            AdcChannel::A4(gpioa.pa4.into_analog(&mut gpioa.crl)),
+        ];
+
+        let adc1 = adc::Adc::adc1(cx.device.ADC1, clocks);
+
+        let mut iwdg = IndependentWatchdog::new(cx.device.IWDG);
+        iwdg.start(Duration::<u32, 1, 1000>::secs(3));
+
+        let values = Tewmas::new();
+
+        (
+            Shared { usb_dev, serial },
+            Local {
+                led,
+                state: false,
+                iwdg,
+                adc1,
+                channels,
+                values,
+            },
+            init::Monotonics(mono),
+        )
+    }
+
+    #[task(binds = USB_HP_CAN_TX, shared = [usb_dev, serial])]
+    fn usb_tx(cx: usb_tx::Context) {
+        let mut usb_dev = cx.shared.usb_dev;
+        let mut serial = cx.shared.serial;
+
+        (&mut usb_dev, &mut serial).lock(|usb_dev, serial| usb_dev.poll(&mut [serial]));
+    }
+
+    #[task(binds = USB_LP_CAN_RX0, shared = [usb_dev, serial])]
+    fn usb_rx0(cx: usb_rx0::Context) {
+        let mut usb_dev = cx.shared.usb_dev;
+        let mut serial = cx.shared.serial;
+
+        (&mut usb_dev, &mut serial).lock(|usb_dev, serial| usb_dev.poll(&mut [serial]));
+    }
+
+    #[task(local = [led, state, iwdg])]
+    fn blink(cx: blink::Context) {
+        cx.local.iwdg.feed();
+        if *cx.local.state {
+            cx.local.led.set_high();
+            *cx.local.state = false;
+        } else {
+            cx.local.led.set_low();
+            *cx.local.state = true;
+        }
+
+        blink::spawn_after(Duration::<u64, 1, 1000>::secs(1)).unwrap();
+    }
+
+    #[task(capacity = 5, shared = [serial])]
+    fn send(mut cx: send::Context, cmd: Cmd) {
+        //rprintln!("send {:?}", cmd);
+        let conf = bincode::config::standard();
+        let mut buf = [0u8; 32];
+        let size = encode_into_slice(cmd, &mut buf, conf).unwrap();
+        cx.shared.serial.lock(|serial| {
+            serial.write(&HEADER).ok();
+            serial.write(&[size.try_into().unwrap()]).ok();
+            //rprintln!("encoded {} : {:?}", size, buf);
+            serial.write(&buf[0..size]).ok();
+        });
+    }
+
+    #[task(local = [adc1, channels, values])]
+    fn read(cx: read::Context) {
+        let adc1 = cx.local.adc1;
+        let channels = cx.local.channels;
+        let values = cx.local.values;
+
         for (i, chan) in channels.iter_mut().enumerate() {
-            usb_dev.poll(&mut [&mut serial]);
-            if values.update(i, chan.read(&mut adc1).try_into().unwrap()) {
-                usb_dev.poll(&mut [&mut serial]);
-                //rprintln!("{} {}", i, values.tewma[i]);
-                send[4..7].copy_from_slice(&values.get(i));
-                match serial.write(&send) {
-                    Ok(7) => {} // rprintln!("OK {:?}", send),
-                    Ok(i) => rprintln!("ERR sent only {} / 7", i),
-                    Err(e) => rprintln!("ERR error writing: {:?}", e),
+            if values.update(i, chan.read(adc1).try_into().unwrap()) {
+                if let Err(e) = send::spawn(values.get(i)) {
+                    rprintln!("err {:?}", e);
                 }
             }
         }
-    }
-}
 
-#[inline(never)]
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    rprintln!("{}", info);
-    loop {} // You might need a compiler fence in here.
+        read::spawn_after(Duration::<u64, 1, 1000>::millis(100)).unwrap();
+    }
 }

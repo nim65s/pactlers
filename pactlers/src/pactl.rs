@@ -39,9 +39,9 @@ impl<'a> PactlChannel<'a> {
         Self { class, name }
     }
 
-    pub fn set(&self, vol: u32) {
+    pub fn set(&self, vol: u16) {
         // Adc: 0-4095 ; pactl: 0-65536 -> x16
-        let vol = &((vol + 1) * 16).to_string();
+        let vol = &((vol as u32 + 1) * 16).to_string();
         let output = Command::new("pactl")
             .args(["list", &format!("{}s", self.class.class())])
             .output()

@@ -4,7 +4,7 @@ Description=pactlers
 [Service]
 Type=simple
 ExecStart=%h/.cargo/bin/pactlers
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

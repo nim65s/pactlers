@@ -1,20 +1,25 @@
 use async_channel::unbounded;
+use futures::stream::StreamExt;
+use pactlers_lib::{Cmd, N_ADCS};
+use std::path::Path;
 use std::time::Duration;
-use std::io::Read;
 use tokio::{task, time::sleep};
+use tokio_serial::SerialPortBuilderExt;
+use tokio_util::codec::Decoder;
 
 mod pactl;
+mod sercon;
 
 use crate::pactl::*;
+use crate::sercon::SerialConnection;
 
-const N_ADCS: usize = 5;
-const HEADER: [u8; 4] = [0xFF, 0xFF, 0xFD, 0];
+const DEV: &str = "/dev/pactlers";
 
 #[tokio::main]
 async fn main() {
-    let (tx, rx) = unbounded();
+    let (tx, rx) = unbounded::<Cmd>();
 
-    task::spawn(async move {
+    let ctrl_task = task::spawn(async move {
         let chans: [PactlChannel; N_ADCS] = [
             PactlChannel::new(PactlClass::Spk, "HDA"),
             PactlChannel::new(PactlClass::Mic, "BIRD"),
@@ -22,64 +27,30 @@ async fn main() {
             PactlChannel::new(PactlClass::App, "Firefox"),
             PactlChannel::new(PactlClass::App, "snapclient"),
         ];
-        let mut buf: [u8; 3] = [0; 3];
-        let mut last: [u8; 3] = [0; 3];
         loop {
-            while let Ok(b) = rx.recv().await {
-                buf = b;
-            }
-            if buf != last {
-                let v = u32::from_le_bytes([buf[2], buf[1], 0, 0]);
-                chans[buf[0] as usize].set(v);
-                last = buf;
+            if let Ok(cmd) = rx.recv().await {
+                chans[cmd.select as usize].set(cmd.volume);
             }
             sleep(Duration::from_millis(1)).await;
         }
     });
 
-    println!("Opening /dev/pactlers ...");
+    println!("Opening {} ...", DEV);
 
-    loop {
-        let port = serialport::new("/dev/pactlers", 0) // such baudrate, much speed, wow
-            .timeout(Duration::from_secs(3600 * 24 * 7))
-            .open();
-        if port.is_err() {
-            sleep(Duration::from_millis(500)).await;
-            continue;
-        }
+    while Path::new(DEV).exists() && !ctrl_task.is_finished() {
+        let port = tokio_serial::new(DEV, 0) // such baudrate, much speed, wow
+            .open_native_async()
+            .expect("Failed to open serial port.");
         println!("Connected.");
-        let port = port.unwrap();
+        let (_uart_writer, mut uart_reader) = SerialConnection::new().framed(port).split();
 
-        let mut buf: [u8; 3] = [0; 3];
-        let mut header_index = 0;
-        let mut buffer_index = 0;
-
-        for byte in port.bytes() {
-            if let Ok(byte) = byte {
-                if header_index < HEADER.len() {
-                    if byte == HEADER[header_index] {
-                        header_index += 1;
-                    } else {
-                        eprintln!("wrong header {}: {}", header_index, byte);
-                        header_index = 0;
-                    }
-                } else {
-                    if header_index == HEADER.len() {
-                        buffer_index = 0;
-                        header_index += 1;
-                    }
-                    buf[buffer_index] = byte;
-                    buffer_index += 1;
-                    if buffer_index == buf.len() {
-                        tx.send(buf).await.unwrap();
-                        //println!("ok: {:?}", buf);
-                        header_index = 0;
-                    }
-                }
-            } else {
-                break;
-            }
+        while let Some(Ok(cmd)) = uart_reader.next().await {
+            tx.send(cmd).await.unwrap();
         }
         eprintln!("Disconnected.");
+        sleep(Duration::from_secs(1)).await;
     }
+
+    eprintln!("{} not available.", DEV);
+    ctrl_task.abort();
 }
