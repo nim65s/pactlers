@@ -1,10 +1,12 @@
 use std::{sync::mpsc, thread, time::Duration};
+use std::io::Read;
 
 mod pactl;
 
 use crate::pactl::*;
 
 const N_ADCS: usize = 5;
+const HEADER: [u8; 4] = [0xFF, 0xFF, 0xFD, 0];
 
 fn main() {
     let (tx, rx) = mpsc::channel();
@@ -44,17 +46,37 @@ fn main() {
             continue;
         }
         println!("Connected.");
-        let mut port = port.unwrap();
+        let port = port.unwrap();
 
         let mut buf: [u8; 3] = [0; 3];
+        let mut header_index = 0;
+        let mut buffer_index = 0;
 
-        loop {
-            match port.read(&mut buf) {
-                Ok(3) => tx.send(buf).unwrap(),
-                Ok(count) => eprintln!("wrong read count: {}", count),
-                Err(_) => break,
+        for byte in port.bytes() {
+            if let Ok(byte) = byte {
+                if header_index < HEADER.len() {
+                    if byte == HEADER[header_index] {
+                        header_index += 1;
+                    } else {
+                        eprintln!("wrong header {}: {}", header_index, byte);
+                        header_index = 0;
+                    }
+                } else {
+                    if header_index == HEADER.len() {
+                        buffer_index = 0;
+                        header_index += 1;
+                    }
+                    buf[buffer_index] = byte;
+                    buffer_index += 1;
+                    if buffer_index == buf.len() {
+                        tx.send(buf).unwrap();
+                        //println!("ok: {:?}", buf);
+                        header_index = 0;
+                    }
+                }
+            } else {
+                break;
             }
-            thread::sleep(Duration::from_millis(1));
         }
         eprintln!("Disconnected.");
     }

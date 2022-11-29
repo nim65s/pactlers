@@ -15,6 +15,7 @@ use crate::adcs::AdcChannel;
 use crate::tewma::Tewmas;
 
 const N_ADCS: usize = 5;
+const HEADER: [u8; 4] = [0xFF, 0xFF, 0xFD, 0];
 
 #[cortex_m_rt::entry]
 fn main() -> ! {
@@ -79,17 +80,19 @@ fn main() -> ! {
         .build();
 
     let mut values = Tewmas::new();
+    let mut send: [u8; 7] = [0; 7];
+    send[0..4].copy_from_slice(&HEADER);
     loop {
         for (i, chan) in channels.iter_mut().enumerate() {
             usb_dev.poll(&mut [&mut serial]);
             if values.update(i, chan.read(&mut adc1).try_into().unwrap()) {
                 usb_dev.poll(&mut [&mut serial]);
                 //rprintln!("{} {}", i, values.tewma[i]);
-                match serial.write(&values.get(i)) {
-                    Ok(count) if count != 3 => {
-                        rprintln!("warning: {} byte written", count);
-                    }
-                    _ => {}
+                send[4..7].copy_from_slice(&values.get(i));
+                match serial.write(&send) {
+                    Ok(7) => {} // rprintln!("OK {:?}", send),
+                    Ok(i) => rprintln!("ERR sent only {} / 7", i),
+                    Err(e) => rprintln!("ERR error writing: {:?}", e),
                 }
             }
         }
