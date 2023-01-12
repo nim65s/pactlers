@@ -1,6 +1,7 @@
 use bincode::{decode_from_slice, encode_into_slice};
 use bytes::BufMut;
 use bytes::BytesMut;
+use core::cmp::Ordering;
 use pactlers_lib::{Cmd, HEADER};
 use std::io;
 use tokio_util::codec::{Decoder, Encoder};
@@ -19,34 +20,41 @@ impl Decoder for SerialConnection {
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut ret = None;
         for byte in src.split().iter() {
-            if self.header_index < HEADER.len() {
-                if *byte == HEADER[self.header_index] {
-                    self.header_index += 1;
-                } else {
-                    eprintln!("wrong header {}: {}", self.header_index, byte);
-                    self.header_index = 0;
-                    self.buffer_index = 0;
-                    self.buffer_size = 0;
-                }
-            } else if self.header_index == HEADER.len() {
-                self.buffer_index = 0;
-                self.header_index += 1;
-                self.buffer_size = (*byte).into();
-            } else {
-                self.buffer[self.buffer_index] = *byte;
-                self.buffer_index += 1;
-                if self.buffer_index == self.buffer_size {
-                    let config = bincode::config::standard();
-                    if let Ok((cmd, _)) =
-                        decode_from_slice(&self.buffer[..self.buffer_size], config)
-                    {
-                        ret = Some(cmd);
+            match self.header_index.cmp(&HEADER.len()) {
+                Ordering::Less => {
+                    if *byte == HEADER[self.header_index] {
+                        self.header_index += 1;
                     } else {
-                        eprintln!("couldn't decode {:?}", &self.buffer[..self.buffer_size]);
+                        eprintln!("wrong header {}: {}", self.header_index, byte);
+                        self.header_index = 0;
+                        self.buffer_index = 0;
+                        self.buffer_size = 0;
                     }
-                    self.header_index = 0;
+                }
+                Ordering::Equal => {
                     self.buffer_index = 0;
-                    self.buffer_size = 0;
+                    self.header_index += 1;
+                    self.buffer_size = (*byte).into();
+                    if self.buffer_size >= 32 {
+                        self.header_index = 0;
+                    }
+                }
+                Ordering::Greater => {
+                    self.buffer[self.buffer_index] = *byte;
+                    self.buffer_index += 1;
+                    if self.buffer_index == self.buffer_size {
+                        let config = bincode::config::standard();
+                        if let Ok((cmd, _)) =
+                            decode_from_slice(&self.buffer[..self.buffer_size], config)
+                        {
+                            ret = Some(cmd);
+                        } else {
+                            eprintln!("couldn't decode {:?}", &self.buffer[..self.buffer_size]);
+                        }
+                        self.header_index = 0;
+                        self.buffer_index = 0;
+                        self.buffer_size = 0;
+                    }
                 }
             }
         }

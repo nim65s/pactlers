@@ -1,3 +1,8 @@
+ci:
+    skip:
+      - cargo-check
+      - clippy
+      - fmt
 repos:
 -   repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
@@ -17,3 +22,21 @@ repos:
     -   id: fix-byte-order-marker
     -   id: mixed-line-ending
     -   id: trailing-whitespace
+-   repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+    -   id: cargo-check
+        args: ["-p", "pactlers-fw", "--target", "thumbv7m-none-eabi"]
+    -   id: clippy
+        args: ["-p", "pactlers-fw", "--target", "thumbv7m-none-eabi", "--", "-W", "clippy::pedantic", "-W", "clippy::nursery", "-W", "clippy::unwrap_used", "-W", "clippy::expect_used"]
+-   repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+    -   id: cargo-check
+        args: ["-p", "pactlers", "-p", "pactlers-lib"]
+    -   id: clippy
+        args: ["-p", "pactlers", "-p", "pactlers-lib", "--", "-W", "clippy::pedantic", "-W", "clippy::nursery", "-W", "clippy::unwrap_used", "-W", "clippy::expect_used"]
+-   repo: https://github.com/doublify/pre-commit-rust
+    rev: v1.0
+    hooks:
+    -   id: fmt

@@ -32,6 +32,9 @@ impl Tewmas {
     }
 
     pub fn get(&self, i: usize) -> Cmd {
-        Cmd { select: i as u8, volume: self.tewma[i] as u16 }
+        Cmd {
+            select: i as u8,
+            volume: self.tewma[i] as u16,
+        }
     }
 }
