@@ -3,8 +3,9 @@ use bytes::BufMut;
 use bytes::BytesMut;
 use core::cmp::Ordering;
 use pactlers_lib::{Cmd, HEADER};
-use std::io;
 use tokio_util::codec::{Decoder, Encoder};
+
+use crate::error::Error;
 
 pub struct SerialConnection {
     header_index: usize,
@@ -15,7 +16,7 @@ pub struct SerialConnection {
 
 impl Decoder for SerialConnection {
     type Item = Cmd;
-    type Error = io::Error;
+    type Error = Error;
 
     fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error> {
         let mut ret = None;
@@ -63,23 +64,23 @@ impl Decoder for SerialConnection {
 }
 
 impl Encoder<Cmd> for SerialConnection {
-    type Error = io::Error;
+    type Error = Error;
 
     fn encode(&mut self, cmd: Cmd, buf: &mut BytesMut) -> Result<(), Self::Error> {
         let mut dst = [0; 32];
         let config = bincode::config::standard();
-        let size = encode_into_slice(cmd, &mut dst, config).unwrap();
+        let size = encode_into_slice(cmd, &mut dst, config).map_err(Error::BinEnc)?;
         buf.reserve(size + 5);
         buf.put(&HEADER[..]);
-        buf.put_u8(size.try_into().unwrap());
+        buf.put_u8(size.try_into()?);
         buf.put(&dst[..size]);
         Ok(())
     }
 }
 
 impl SerialConnection {
-    pub fn new() -> SerialConnection {
-        SerialConnection {
+    pub const fn new() -> Self {
+        Self {
             header_index: 0,
             buffer: [0; 32],
             buffer_index: 0,

@@ -596,6 +596,7 @@ dependencies = [
  "futures",
  "pactlers-lib",
  "serialport",
+ "thiserror",
  "tokio",
  "tokio-serial",
  "tokio-util",
@@ -610,6 +611,7 @@ dependencies = [
  "cortex-m-rt",
  "cortex-m-rtic",
  "embedded-hal",
+ "nb 1.0.0",
  "pactlers-lib",
  "panic-rtt-target",
  "rtic-monotonic",
@@ -618,6 +620,7 @@ dependencies = [
  "stm32f1 0.15.1",
  "stm32f1xx-hal",
  "systick-monotonic",
+ "thiserror-core",
  "usb-device",
  "usbd-serial",
 ]
@@ -974,6 +977,46 @@ dependencies = [
  "cortex-m",
  "fugit",
  "rtic-monotonic",
+]
+
+[[package]]
+name = "thiserror"
+version = "1.0.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a9cd18aa97d5c45c6603caea1da6628790b37f7a34b6ca89522331c5180fed0"
+dependencies = [
+ "thiserror-impl",
+]
+
+[[package]]
+name = "thiserror-core"
+version = "1.0.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "808e769db82353a456db04af0e76a4e211c5428516cead2b420dfa3d82cb83d3"
+dependencies = [
+ "thiserror-core-impl",
+]
+
+[[package]]
+name = "thiserror-core-impl"
+version = "1.0.37"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7905b4dad6617f9e81544469da6bb1c658c02c6c7e420ee953d03687db1e1cfe"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "1.0.38"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fb327af4685e4d03fa8cbcf1716380da910eeb2bb8be417e7f9fd3fb164f36f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

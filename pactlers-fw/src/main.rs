@@ -4,17 +4,19 @@
 #![no_main]
 #![no_std]
 #![allow(non_snake_case)]
+#![feature(error_in_core)]
 
 use panic_rtt_target as _;
 
 mod adcs;
+mod error;
 mod tewma;
 
 #[rtic::app(device = stm32f1xx_hal::pac, peripherals = true, dispatchers = [SPI1, SPI2, SPI3, ADC1_2, ADC3, CAN_RX1, CAN_SCE])]
 mod app {
     use bincode::encode_into_slice;
     use cortex_m::asm::delay;
-    use pactlers_lib::*;
+    use pactlers_lib::{Cmd, HEADER, N_ADCS};
     use rtt_target::{rprintln, rtt_init_print};
     use stm32f1xx_hal::adc;
     use stm32f1xx_hal::gpio::PinState;
@@ -190,8 +192,8 @@ mod app {
         let channels = cx.local.channels;
         let values = cx.local.values;
 
-        for (i, chan) in channels.iter_mut().enumerate() {
-            if values.update(i, chan.read(adc1).try_into().unwrap()) {
+        for (i, chan) in (0_u8..).zip(channels.iter_mut()) {
+            if values.update(i as usize, chan.read(adc1).unwrap()) {
                 if let Err(e) = send::spawn(values.get(i)) {
                     rprintln!("err {:?}", e);
                 }

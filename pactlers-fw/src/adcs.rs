@@ -1,4 +1,5 @@
-use stm32f1xx_hal::gpio::*;
+use crate::error::Error;
+use stm32f1xx_hal::gpio::{Analog, PA0, PA1, PA2, PA3, PA4, PA5, PA6, PA7, PB0, PB1};
 use stm32f1xx_hal::{adc, pac, prelude::*};
 
 #[allow(dead_code)]
@@ -16,18 +17,19 @@ pub enum AdcChannel {
 }
 
 impl AdcChannel {
-    pub fn read(&mut self, adc: &mut adc::Adc<pac::ADC1>) -> u16 {
+    pub fn read(&mut self, adc: &mut adc::Adc<pac::ADC1>) -> Result<u16, Error> {
         match self {
-            AdcChannel::A0(p) => adc.read(p).unwrap(),
-            AdcChannel::A1(p) => adc.read(p).unwrap(),
-            AdcChannel::A2(p) => adc.read(p).unwrap(),
-            AdcChannel::A3(p) => adc.read(p).unwrap(),
-            AdcChannel::A4(p) => adc.read(p).unwrap(),
-            AdcChannel::A5(p) => adc.read(p).unwrap(),
-            AdcChannel::A6(p) => adc.read(p).unwrap(),
-            AdcChannel::A7(p) => adc.read(p).unwrap(),
-            AdcChannel::B0(p) => adc.read(p).unwrap(),
-            AdcChannel::B1(p) => adc.read(p).unwrap(),
+            Self::A0(p) => adc.read(p),
+            Self::A1(p) => adc.read(p),
+            Self::A2(p) => adc.read(p),
+            Self::A3(p) => adc.read(p),
+            Self::A4(p) => adc.read(p),
+            Self::A5(p) => adc.read(p),
+            Self::A6(p) => adc.read(p),
+            Self::A7(p) => adc.read(p),
+            Self::B0(p) => adc.read(p),
+            Self::B1(p) => adc.read(p),
         }
+        .map_err(Error::Nb)
     }
 }
