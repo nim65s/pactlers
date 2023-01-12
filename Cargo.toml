@@ -1,0 +1,7 @@
+[workspace]
+
+members = [
+  "pactlers",
+  "pactlers-fw",
+  "pactlers-lib",
+]
