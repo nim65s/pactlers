@@ -23,7 +23,7 @@ mod app {
     use stm32f1xx_hal::gpio::{Output, PushPull, PC13};
     use stm32f1xx_hal::pac::{ADC1, TIM2};
     use stm32f1xx_hal::prelude::*;
-    use stm32f1xx_hal::timer::monotonic::{MonoTimerExt, MonoTimerUs};
+    use stm32f1xx_hal::timer::MonoTimerUs;
     use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
     use stm32f1xx_hal::watchdog::IndependentWatchdog;
     use usb_device::prelude::*;
