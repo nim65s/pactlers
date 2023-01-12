@@ -129,7 +129,7 @@ mod app {
         let mut iwdg = IndependentWatchdog::new(cx.device.IWDG);
         iwdg.start(3.secs());
 
-        let values = Tewmas::new();
+        let values = Tewmas::default();
 
         (
             Shared { usb_dev, serial },
@@ -196,10 +196,8 @@ mod app {
         let values = cx.local.values;
 
         for (i, chan) in (0_u8..).zip(channels.iter_mut()) {
-            if values.update(i as usize, chan.read(adc1).unwrap()) {
-                if let Err(e) = send::spawn(values.get(i)) {
-                    rprintln!("err {:?}", e);
-                }
+            if let Some(cmd) = values.update(i, chan.read(adc1).unwrap()) {
+                send::spawn(cmd).unwrap();
             }
         }
 

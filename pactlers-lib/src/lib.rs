@@ -10,3 +10,10 @@ pub struct Cmd {
     pub select: u8,
     pub volume: u16,
 }
+
+impl Cmd {
+    #[must_use]
+    pub const fn new(select: u8, volume: u16) -> Self {
+        Self { select, volume }
+    }
+}

@@ -13,34 +13,24 @@ pub struct Tewmas {
 }
 
 impl Tewmas {
-    pub const fn new() -> Self {
-        Self {
-            ewma: [0; N_ADCS],
-            tewma: [0; N_ADCS],
-        }
-    }
-
-    pub fn update(&mut self, i: usize, val: u16) -> bool {
+    pub fn update(&mut self, idx: u8, val: u16) -> Option<Cmd> {
         //self.ewma[i] = (self.ewma[i] as f32 + ALPHA * (val - self.ewma[i]) as f32) as i32;
+        let i = idx as usize;
         self.ewma[i] = (val + self.ewma[i]) >> 1;
         if self.tewma[i].abs_diff(self.ewma[i]) > THRESHOLD {
             self.tewma[i] = self.ewma[i];
-            true
+            Some(Cmd::new(idx, self.tewma[i]))
         } else {
-            false
-        }
-    }
-
-    pub const fn get(&self, i: u8) -> Cmd {
-        Cmd {
-            select: i,
-            volume: self.tewma[i as usize],
+            None
         }
     }
 }
 
 impl Default for Tewmas {
     fn default() -> Self {
-        Self::new()
+        Self {
+            ewma: [0; N_ADCS],
+            tewma: [0; N_ADCS],
+        }
     }
 }
