@@ -619,7 +619,6 @@ dependencies = [
  "stm32-usbd",
  "stm32f1 0.15.1",
  "stm32f1xx-hal",
- "systick-monotonic",
  "thiserror-core",
  "usb-device",
  "usbd-serial",
@@ -952,6 +951,7 @@ dependencies = [
  "fugit",
  "fugit-timer",
  "nb 1.0.0",
+ "rtic-monotonic",
  "stm32-usbd",
  "stm32f1 0.14.0",
  "void",
@@ -966,17 +966,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
-]
-
-[[package]]
-name = "systick-monotonic"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "67fb822d5c615a0ae3a4795ee5b1d06381c7faf488d861c0a4fa8e6a88d5ff84"
-dependencies = [
- "cortex-m",
- "fugit",
- "rtic-monotonic",
 ]
 
 [[package]]

@@ -3,7 +3,7 @@
 //! with bincode & rtt
 #![no_main]
 #![no_std]
-#![allow(non_snake_case)]
+#![allow(clippy::unwrap_used)]
 #![feature(error_in_core)]
 
 use panic_rtt_target as _;
@@ -21,11 +21,11 @@ mod app {
     use stm32f1xx_hal::adc;
     use stm32f1xx_hal::gpio::PinState;
     use stm32f1xx_hal::gpio::{Output, PushPull, PC13};
-    use stm32f1xx_hal::pac::ADC1;
+    use stm32f1xx_hal::pac::{ADC1, TIM2};
     use stm32f1xx_hal::prelude::*;
+    use stm32f1xx_hal::timer::monotonic::{MonoTimerExt, MonoTimerUs};
     use stm32f1xx_hal::usb::{Peripheral, UsbBus, UsbBusType};
     use stm32f1xx_hal::watchdog::IndependentWatchdog;
-    use systick_monotonic::{fugit::Duration, Systick};
     use usb_device::prelude::*;
 
     use crate::adcs::AdcChannel;
@@ -47,8 +47,8 @@ mod app {
         values: Tewmas,
     }
 
-    #[monotonic(binds = SysTick, default = true)]
-    type MonoTimer = Systick<1000>;
+    #[monotonic(binds = TIM2, default = true)]
+    type MyMono = MonoTimerUs<TIM2>;
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -58,7 +58,6 @@ mod app {
 
         let mut flash = cx.device.FLASH.constrain();
         let rcc = cx.device.RCC.constrain();
-        let mono = Systick::new(cx.core.SYST, 36_000_000);
 
         let clocks = rcc
             .cfgr
@@ -68,6 +67,8 @@ mod app {
             .freeze(&mut flash.acr);
 
         assert!(clocks.usbclk_valid());
+
+        let mono = cx.device.TIM2.monotonic_us(&clocks);
 
         let mut gpioa = cx.device.GPIOA.split();
         let mut gpioc = cx.device.GPIOC.split();
@@ -109,8 +110,10 @@ mod app {
         let led = gpioc
             .pc13
             .into_push_pull_output_with_state(&mut gpioc.crh, PinState::Low);
-        blink::spawn_after(Duration::<u64, 1, 1000>::secs(1)).unwrap();
-        read::spawn_after(Duration::<u64, 1, 1000>::millis(100)).unwrap();
+
+        blink::spawn_after(1.secs()).unwrap();
+        read::spawn_after(100.millis()).unwrap();
+
         rprintln!("init end");
 
         let channels = [
@@ -124,7 +127,7 @@ mod app {
         let adc1 = adc::Adc::adc1(cx.device.ADC1, clocks);
 
         let mut iwdg = IndependentWatchdog::new(cx.device.IWDG);
-        iwdg.start(Duration::<u32, 1, 1000>::secs(3));
+        iwdg.start(3.secs());
 
         let values = Tewmas::new();
 
@@ -169,7 +172,7 @@ mod app {
             *cx.local.state = true;
         }
 
-        blink::spawn_after(Duration::<u64, 1, 1000>::secs(1)).unwrap();
+        blink::spawn_after(1.secs()).unwrap();
     }
 
     #[task(capacity = 5, shared = [serial])]
@@ -200,6 +203,6 @@ mod app {
             }
         }
 
-        read::spawn_after(Duration::<u64, 1, 1000>::millis(100)).unwrap();
+        read::spawn_after(100.millis()).unwrap();
     }
 }

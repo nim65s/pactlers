@@ -1,0 +1,25 @@
+default_job = "clippy-native"
+
+[jobs]
+
+[jobs.check-native]
+command = ["cargo", "check", "--color", "always", "-p", "pactlers", "-p", "pactlers-lib"]
+need_stdout = false
+
+[jobs.check-arm]
+command = ["cargo", "check", "--color", "always", "-p", "pactlers-fw", "--target", "thumbv7m-none-eabi"]
+need_stdout = false
+
+[jobs.clippy-native]
+command = ["cargo", "clippy", "--color", "always", "-p", "pactlers", "-p", "pactlers-lib", "--", "-W", "clippy::pedantic", "-W", "clippy::nursery", "-W", "clippy::unwrap_used", "-W", "clippy::expect_used"]
+need_stdout = false
+
+[jobs.clippy-arm]
+command = ["cargo", "clippy", "--color", "always", "-p", "pactlers-fw", "--target", "thumbv7m-none-eabi", "--", "-W", "clippy::pedantic", "-W", "clippy::nursery", "-W", "clippy::unwrap_used", "-W", "clippy::expect_used"]
+need_stdout = false
+
+[keybindings]
+a = "job:check-native"
+u = "job:check-arm"
+i = "job:clippy-native"
+e = "job:clippy-arm"
