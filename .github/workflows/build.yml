@@ -11,7 +11,7 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: nightly
-          override: true
+          default: true
       - name: Install udev
         run: sudo apt-get update && sudo apt-get install -y libudev-dev
       - name: pactlers
@@ -26,7 +26,7 @@ jobs:
         with:
           toolchain: nightly
           target: thumbv7m-none-eabi
-          override: true
+          default: true
       - name: pactlers-fw
         run: cargo check
         working-directory: ./pactlers-fw
