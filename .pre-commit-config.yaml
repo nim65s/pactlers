@@ -57,11 +57,11 @@ repos:
   hooks:
   - id: fmt
 - repo: https://github.com/nim65s/pre-commit-sort
-  rev: v0.1.0
+  rev: v0.4.0
   hooks:
   - id: pre-commit-sort
 - repo: https://github.com/pre-commit/pre-commit-hooks
-  rev: v4.4.0
+  rev: v6.0.0
   hooks:
   - id: check-added-large-files
   - id: check-ast
